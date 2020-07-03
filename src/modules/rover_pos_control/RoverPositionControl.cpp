@@ -149,6 +149,17 @@ RoverPositionControl::vehicle_attitude_poll()
 }
 
 void
+RoverPositionControl::rates_setpoint_poll()
+{
+	bool rates_sp_updated;
+	orb_check(_rates_sp_sub, &rates_sp_updated);
+
+	if (rates_sp_updated) {
+		orb_copy(ORB_ID(vehicle_rates_setpoint), _rates_sp_sub, &_rates_sp);
+	}
+}
+
+void
 RoverPositionControl::vehicle_angular_velocity_poll()
 {
 	bool rates_updated;
@@ -363,18 +374,19 @@ RoverPositionControl::control_attitude(const vehicle_attitude_s &att, const vehi
 }
 
 void
-RoverPositionControl::control_rates(const vehicle_angular_velocity_s &rates, const vehicle_rates_setpoint_s &rates_sp)
+RoverPositionControl::control_rates(const vehicle_angular_velocity_s &ratecontrol_ratess, const vehicle_rates_setpoint_s &rates_sp)
 {
-	struct ECL_ControlData control_input = {};
-	control_input.body_z_rate = rates.xyz[2];
-	_att_control.set_bodyrate_setpoint(rates_sp.yaw);
+	// struct ECL_ControlData control_input = {};
+	// control_input.body_z_rate = rates.xyz[2];
+	// _att_control.set_bodyrate_setpoint(rates_sp.yaw);
 
-	float control_effort = _att_control.control_bodyrate(control_input);
-	control_effort = math::constrain(control_effort, -1.0f, 1.0f);
+	// float control_effort = _att_control.control_bodyrate(control_input);
+	// control_effort = math::constrain(control_effort, -1.0f, 1.0f);
 
-	_act_controls.control[actuator_controls_s::INDEX_YAW] = control_effort;
+	// _act_controls.control[actuator_controls_s::INDEX_YAW] = control_effort;
 
 	const float control_throttle = rates_sp.thrust_body[0];
+	PX4_INFO("Rates throttle: %f", double(control_throttle));
 
 	_act_controls.control[actuator_controls_s::INDEX_THROTTLE] =  math::constrain(control_throttle, 0.0f, 1.0f);
 }
@@ -390,6 +402,7 @@ RoverPositionControl::run()
 	_manual_control_setpoint_sub = orb_subscribe(ORB_ID(manual_control_setpoint));
 	_pos_sp_triplet_sub = orb_subscribe(ORB_ID(position_setpoint_triplet));
 	_att_sp_sub = orb_subscribe(ORB_ID(vehicle_attitude_setpoint));
+	_rates_sp_sub = orb_subscribe(ORB_ID(vehicle_rates_setpoint));
 
 	_vehicle_attitude_sub = orb_subscribe(ORB_ID(vehicle_attitude));
 	_sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
@@ -434,6 +447,7 @@ RoverPositionControl::run()
 		/* check vehicle control mode for changes to publication state */
 		vehicle_control_mode_poll();
 		attitude_setpoint_poll();
+		rates_setpoint_poll();
 		vehicle_angular_velocity_poll();
 		//manual_control_setpoint_poll();
 
@@ -531,11 +545,11 @@ RoverPositionControl::run()
 			vehicle_angular_velocity_poll();
 
 			if (!manual_mode && _control_mode.flag_control_rates_enabled
+			    && !_control_mode.flag_control_attitude_enabled
 			    && !_control_mode.flag_control_position_enabled
 			    && !_control_mode.flag_control_velocity_enabled) {
-
-				// control_rates(_vehicle_rates, _rates_sp);
-				PX4_INFO("Control Rates");
+				//Offboard rate control
+				control_rates(_vehicle_rates, _rates_sp);
 			}
 		 	//TODO: Add stabilized mode for rovers
 		}
@@ -581,6 +595,7 @@ RoverPositionControl::run()
 	orb_unsubscribe(_local_pos_sub);
 	orb_unsubscribe(_manual_control_setpoint_sub);
 	orb_unsubscribe(_pos_sp_triplet_sub);
+	orb_unsubscribe(_rates_sp_sub);
 	orb_unsubscribe(_vehicle_attitude_sub);
 	orb_unsubscribe(_vehicle_angular_velocity_sub);
 	orb_unsubscribe(_sensor_combined_sub);
